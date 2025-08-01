@@ -14,11 +14,17 @@
 
 RF24 radio(CE_PIN, CSN_PIN);  // CE, CSN
 
+
+
 // Variables del receptor
+// Estado del protocolo V202
+uint8_t bind_address[5] = {0x66, 0x88, 0x68, 0x68, 0x68};
+uint8_t hopping_sequence[16];
 uint8_t packet[16];
 uint8_t bound_address[5] = {0};
 uint8_t current_channel = 0;
 bool bound = false;
+unsigned long last_packet_time = 0;
 
 // Rangos típicos del protocolo V202
 #define MIN_CHANNEL 2
@@ -58,10 +64,17 @@ void bind_loop() {
   for (uint8_t ch = MIN_CHANNEL; ch <= MAX_CHANNEL; ch++) {
     radio.setChannel(ch);
     radio.startListening();
+    Serial.printf("Canal %d...\n", ch);
 
     for (int i = 0; i < BIND_RETRIES; i++) {
       if (radio.available()) {
         radio.read(&packet, sizeof(packet));
+
+        Serial.print("Paquete recibido: ");
+        for (int j = 0; j < 16; j++) {
+          Serial.printf("%02X ", packet[j]);
+        }
+        Serial.println();
 
         // Verificar si el paquete parece válido (simple heurística)
         if ((packet[0] ^ packet[1]) == 0xFF && packet[4] == 0xA7) {
@@ -83,14 +96,32 @@ void bind_loop() {
   }
 }
 
+void start_reception() {
+  radio.stopListening();
+  radio.openReadingPipe(0, bound_address);
+  radio.setChannel(current_channel);
+  radio.startListening();
+  Serial.println("Receptor conectado, escuchando paquetes...");
+}
+
 void loop() {  
-  if (radio.available()) {
-    uint8_t payload[32];
-    radio.read(&payload, sizeof(payload));
-    Serial.println("Paquete recibido:");
-    for (int i = 0; i < 32; i++) {
-      Serial.printf("%02X ", payload[i]);
+  if (!bound) {
+    bind_loop();
+    if (bound) {
+      start_reception();
+    } else {
+      Serial.println("No se encontró el control. Reintentando...");
+      delay(500);
     }
-    Serial.println();
+  } else {
+    if (radio.available()) {
+      radio.read(&packet, sizeof(packet));
+
+      Serial.print("Paquete: ");
+      for (int i = 0; i < 16; i++) {
+        Serial.printf("%02X ", packet[i]);
+      }
+      Serial.println();
+    }
   }
 }
